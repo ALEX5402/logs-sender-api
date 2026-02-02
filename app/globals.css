@@ -1,7 +1,13 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
 
+@theme {
+    --font-mono: 'JetBrains Mono', monospace;
+
+    /* Modern Dark Palette colors can be defined here if needed as tokens, 
+     but CSS variables work fine with arbitrary values too */
+}
+
+/* Custom CSS Variables */
 :root {
     --font-jetbrains: 'JetBrains Mono', monospace;
 
@@ -30,7 +36,7 @@
 body {
     background: var(--bg-primary);
     color: var(--text-primary);
-    font-family: var(--font-jetbrains);
+    font-family: var(--font-jetbrains), monospace;
 }
 
 /* Custom Scrollbar */
@@ -50,19 +56,4 @@ body {
 
 ::-webkit-scrollbar-thumb:hover {
     background: var(--text-tertiary);
-}
-
-/* Utility for glass effects */
-.glass {
-    background: var(--glass-surface);
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
-    border: 1px solid var(--glass-border);
-}
-
-.glass-card {
-    background: linear-gradient(145deg, rgba(255, 255, 255, 0.03) 0%, rgba(255, 255, 255, 0.01) 100%);
-    backdrop-filter: blur(20px);
-    border: 1px solid var(--glass-border);
-    box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
 }

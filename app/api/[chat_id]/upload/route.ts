@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { sendLogs, isTelegramConfigured } from "@/app/lib/telegram";
 import { saveLog, LogEntry } from "@/app/lib/database";
 import { getClientIP, getGeoLocation } from "@/app/lib/geolocation";
+import { sanitizeContent } from "@/app/lib/sanitizer";
 
 interface UploadResponse {
     success: boolean;
@@ -91,12 +92,47 @@ export async function POST(
             }
 
             if (file && file.size > 0) {
+                // Check file size (max 18MB)
+                const MAX_SIZE = 18 * 1024 * 1024;
+                if (file.size > MAX_SIZE) {
+                    logEntry.status = "failed";
+                    logEntry.errorMessage = "File too large";
+
+                    return NextResponse.json(
+                        {
+                            success: false,
+                            message: "Invalid request",
+                            error: "File size exceeds 18MB limit",
+                        },
+                        { status: 400 }
+                    );
+                }
+
                 logContent = file;
                 contentSize = file.size;
                 logEntry.contentType = "file";
+
                 if (!customFilename) {
                     filename = file.name || "logs.txt";
                 }
+
+                // Check file extension
+                const allowedExtensions = ['.log', '.txt', '.zip'];
+                const fileExt = filename.toLowerCase().substring(filename.lastIndexOf('.'));
+                if (!allowedExtensions.includes(fileExt)) {
+                    logEntry.status = "failed";
+                    logEntry.errorMessage = "Unsupported file type";
+
+                    return NextResponse.json(
+                        {
+                            success: false,
+                            message: "Invalid request",
+                            error: "Only .log, .txt, and .zip files are allowed",
+                        },
+                        { status: 400 }
+                    );
+                }
+
             } else if (text && text.trim() !== "") {
                 logContent = text;
                 contentSize = new Blob([text]).size;
@@ -131,7 +167,7 @@ export async function POST(
                 );
             }
 
-            logContent = body.text;
+            logContent = sanitizeContent(body.text);
             contentSize = new Blob([body.text]).size;
             logEntry.contentType = "text";
             caption = body.caption;
@@ -139,7 +175,7 @@ export async function POST(
                 filename = body.filename;
             }
         } else if (contentType.includes("text/plain")) {
-            logContent = await request.text();
+            logContent = sanitizeContent(await request.text());
             contentSize = new Blob([logContent]).size;
             logEntry.contentType = "text";
 
@@ -176,6 +212,15 @@ export async function POST(
 
         if (!caption) {
             caption = `Log received at ${new Date().toISOString()}`;
+        }
+
+        // Sanitize caption
+        caption = sanitizeContent(caption);
+        logEntry.caption = caption;
+
+        // Sanitize logContent if it's a string (from formData)
+        if (typeof logContent === 'string') {
+            logContent = sanitizeContent(logContent);
         }
 
         // Send to Telegram
