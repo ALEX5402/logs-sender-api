@@ -110,6 +110,7 @@ export default function DashboardPage() {
         country: "",
     });
     const [refreshing, setRefreshing] = useState(false);
+    const [showStatusDropdown, setShowStatusDropdown] = useState(false);
 
     const fetchData = useCallback(async (isRefresh = false) => {
         try {
@@ -322,15 +323,67 @@ export default function DashboardPage() {
                                         className="h-9 pl-9 pr-4 bg-black/20 border border-white/5 rounded-lg text-xs focus:outline-none focus:border-indigo-500/50 w-full md:w-64 transition-all"
                                     />
                                 </div>
-                                <select
-                                    value={filters.status}
-                                    onChange={(e) => setFilters(prev => ({ ...prev, status: e.target.value }))}
-                                    className="h-9 px-3 bg-black/20 border border-white/5 rounded-lg text-xs focus:outline-none focus:border-indigo-500/50 cursor-pointer"
-                                >
-                                    <option value="">All Status</option>
-                                    <option value="success">Success</option>
-                                    <option value="failed">Failed</option>
-                                </select>
+
+                                {/* Custom Status Dropdown */}
+                                <div className="relative z-20">
+                                    <button
+                                        onClick={() => setShowStatusDropdown(!showStatusDropdown)}
+                                        onBlur={() => setTimeout(() => setShowStatusDropdown(false), 200)}
+                                        className="h-9 px-3 flex items-center gap-2 bg-black/20 border border-white/5 rounded-lg text-xs hover:bg-white/5 hover:border-white/10 transition-all min-w-[120px] justify-between"
+                                    >
+                                        <div className="flex items-center gap-2">
+                                            {filters.status === 'success' ? (
+                                                <div className="flex items-center gap-1.5 text-emerald-400">
+                                                    <CheckCircle2 size={12} />
+                                                    <span>Success</span>
+                                                </div>
+                                            ) : filters.status === 'failed' ? (
+                                                <div className="flex items-center gap-1.5 text-rose-400">
+                                                    <XCircle size={12} />
+                                                    <span>Failed</span>
+                                                </div>
+                                            ) : (
+                                                <span className="text-zinc-400">All Status</span>
+                                            )}
+                                        </div>
+                                        <ChevronRight size={12} className={`text-zinc-500 transition-transform duration-200 ${showStatusDropdown ? 'rotate-90' : ''}`} />
+                                    </button>
+
+                                    <AnimatePresence>
+                                        {showStatusDropdown && (
+                                            <motion.div
+                                                initial={{ opacity: 0, y: 5 }}
+                                                animate={{ opacity: 1, y: 0 }}
+                                                exit={{ opacity: 0, y: 5 }}
+                                                className="absolute right-0 top-full mt-2 w-32 bg-[#0a0a10] border border-white/10 rounded-xl shadow-xl shadow-black/50 overflow-hidden"
+                                            >
+                                                <div className="p-1 space-y-0.5">
+                                                    <button
+                                                        onClick={() => setFilters(prev => ({ ...prev, status: "" }))}
+                                                        className={`w-full flex items-center gap-2 px-3 py-2 text-xs rounded-lg transition-colors ${!filters.status ? 'bg-indigo-500/10 text-indigo-400' : 'text-zinc-400 hover:bg-white/5 hover:text-zinc-200'}`}
+                                                    >
+                                                        <span className="w-1.5 h-1.5 rounded-full bg-current opacity-50" />
+                                                        All Status
+                                                    </button>
+                                                    <button
+                                                        onClick={() => setFilters(prev => ({ ...prev, status: "success" }))}
+                                                        className={`w-full flex items-center gap-2 px-3 py-2 text-xs rounded-lg transition-colors ${filters.status === 'success' ? 'bg-emerald-500/10 text-emerald-400' : 'text-zinc-400 hover:bg-white/5 hover:text-zinc-200'}`}
+                                                    >
+                                                        <CheckCircle2 size={12} />
+                                                        Success
+                                                    </button>
+                                                    <button
+                                                        onClick={() => setFilters(prev => ({ ...prev, status: "failed" }))}
+                                                        className={`w-full flex items-center gap-2 px-3 py-2 text-xs rounded-lg transition-colors ${filters.status === 'failed' ? 'bg-rose-500/10 text-rose-400' : 'text-zinc-400 hover:bg-white/5 hover:text-zinc-200'}`}
+                                                    >
+                                                        <XCircle size={12} />
+                                                        Failed
+                                                    </button>
+                                                </div>
+                                            </motion.div>
+                                        )}
+                                    </AnimatePresence>
+                                </div>
                             </div>
                         </div>
 
