@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 export async function GET() {
   return NextResponse.json({
     name: "Logs Sender API",
-    version: "1.0.0",
+    version: "1.0.1-stable",
     description: "Send logs to Telegram via HTTP API",
     endpoints: {
       upload: {
