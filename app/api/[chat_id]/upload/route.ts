@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { sendLogs, isTelegramConfigured } from "@/app/lib/telegram";
-import { saveLog, LogEntry } from "@/app/lib/database";
+import { saveLog, LogEntry, isIpBlocked } from "@/app/lib/database";
 import { getClientIP, getGeoLocation } from "@/app/lib/geolocation";
 import { sanitizeContent } from "@/app/lib/sanitizer";
 import { rateLimiter } from "@/app/lib/ratelimit";
@@ -38,6 +38,18 @@ export async function POST(
                 error: "Too many requests. Please try again later.",
             },
             { status: 429 }
+        );
+    }
+
+    // IP Block Check
+    if (await isIpBlocked(ip)) {
+        return NextResponse.json(
+            {
+                success: false,
+                message: "Access Denied",
+                error: "Your IP address has been blocked.",
+            },
+            { status: 403 }
         );
     }
 

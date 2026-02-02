@@ -107,12 +107,24 @@ export async function saveLog(log: Omit<LogEntry, "_id">): Promise<void> {
 export async function getLogs(
     page: number = 1,
     limit: number = 50,
-    filters?: { chatId?: string; status?: string; country?: string }
+    filters?: { search?: string; status?: string; country?: string }
 ): Promise<{ logs: LogEntry[]; total: number }> {
     const collection = await getLogsCollection();
 
     const query: Record<string, unknown> = {};
-    if (filters?.chatId) query.chatId = filters.chatId;
+
+    if (filters?.search) {
+        const searchRegex = new RegExp(filters.search, "i"); // Case-insensitive
+        query.$or = [
+            { chatId: searchRegex },
+            { filename: searchRegex },
+            { ip: searchRegex },
+            { country: searchRegex },
+            { city: searchRegex },
+            { caption: searchRegex },
+        ];
+    }
+
     if (filters?.status) query.status = filters.status;
     if (filters?.country) query.country = filters.country;
 
@@ -225,4 +237,44 @@ export async function findUserById(userId: string): Promise<User | null> {
     } catch {
         return null;
     }
+}
+
+// Blocked IP Helpers
+export interface BlockedIp {
+    _id?: string;
+    ip: string;
+    reason?: string;
+    blockedAt: Date;
+    blockedBy?: string;
+}
+
+export async function getBlockedIpsCollection(): Promise<Collection<BlockedIp>> {
+    const { db } = await connectToDatabase();
+    return db.collection<BlockedIp>("blocked_ips");
+}
+
+export async function blockIp(ip: string, reason: string = "Manual block"): Promise<void> {
+    const collection = await getBlockedIpsCollection();
+    await collection.updateOne(
+        { ip },
+        { $set: { ip, reason, blockedAt: new Date() } },
+        { upsert: true }
+    );
+}
+
+export async function unblockIp(ip: string): Promise<void> {
+    const collection = await getBlockedIpsCollection();
+    await collection.deleteOne({ ip });
+}
+
+export async function isIpBlocked(ip: string): Promise<boolean> {
+    const collection = await getBlockedIpsCollection();
+    const count = await collection.countDocuments({ ip }, { limit: 1 });
+    return count > 0;
+}
+
+export async function getBlockedIps(): Promise<string[]> {
+    const collection = await getBlockedIpsCollection();
+    const docs = await collection.find({}, { projection: { ip: 1 } }).toArray();
+    return docs.map(d => d.ip);
 }

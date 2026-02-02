@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getLogs, getStats } from "@/app/lib/database";
+import { getLogs, getStats, getBlockedIps } from "@/app/lib/database";
 
 /**
  * GET /api/dashboard
@@ -12,14 +12,15 @@ export async function GET(request: NextRequest) {
 
         const page = parseInt(searchParams.get("page") || "1");
         const limit = parseInt(searchParams.get("limit") || "50");
-        const chatId = searchParams.get("chatId") || undefined;
+        const search = searchParams.get("search") || undefined;
         const status = searchParams.get("status") || undefined;
         const country = searchParams.get("country") || undefined;
         const includeStats = searchParams.get("stats") !== "false";
 
-        const [logsResult, stats] = await Promise.all([
-            getLogs(page, limit, { chatId, status, country }),
+        const [logsResult, stats, blockedIpsList] = await Promise.all([
+            getLogs(page, limit, { search, status, country }),
             includeStats ? getStats() : null,
+            getBlockedIps(),
         ]);
 
         return NextResponse.json({
@@ -33,6 +34,7 @@ export async function GET(request: NextRequest) {
                     totalPages: Math.ceil(logsResult.total / limit),
                 },
                 stats: stats,
+                blockedIps: blockedIpsList,
             },
         });
     } catch (error) {

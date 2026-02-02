@@ -16,6 +16,11 @@ import {
     Clock,
     MapPin,
     Terminal,
+    Shield,
+    ShieldAlert,
+    ShieldCheck,
+    Lock,
+    Unlock,
 } from "lucide-react";
 import { toast } from "sonner";
 import { motion, AnimatePresence } from "framer-motion";
@@ -105,12 +110,71 @@ export default function DashboardPage() {
     const [loading, setLoading] = useState(true);
     const [page, setPage] = useState(1);
     const [filters, setFilters] = useState({
-        chatId: "",
+        search: "",
         status: "",
         country: "",
     });
     const [refreshing, setRefreshing] = useState(false);
     const [showStatusDropdown, setShowStatusDropdown] = useState(false);
+    const [blockedIps, setBlockedIps] = useState<Set<string>>(new Set());
+
+    // Toggle IP Block
+    const toggleIpBlock = async (ip: string) => {
+        const isBlocked = blockedIps.has(ip);
+        const newBlocked = new Set(blockedIps);
+
+        // Optimistic update
+        if (isBlocked) newBlocked.delete(ip);
+        else newBlocked.add(ip);
+        setBlockedIps(newBlocked);
+
+        try {
+            const method = isBlocked ? "DELETE" : "POST";
+            const res = await fetch("/api/dashboard/block-ip", {
+                method,
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ ip }),
+            });
+            const data = await res.json();
+
+            if (data.success) {
+                toast.success(isBlocked ? `Unblocked ${ip}` : `Blocked ${ip}`);
+            } else {
+                // Revert
+                setBlockedIps(prev => {
+                    const revert = new Set(prev);
+                    if (isBlocked) revert.add(ip); else revert.delete(ip);
+                    return revert;
+                });
+                toast.error(data.error);
+            }
+        } catch {
+            // Revert
+            setBlockedIps(prev => {
+                const revert = new Set(prev);
+                if (isBlocked) revert.add(ip); else revert.delete(ip);
+                return revert;
+            });
+            toast.error("Failed to update status");
+        }
+    };
+
+    // Need to fetch blocked IPs list on load, but for now we can rely on manual toggle or add fetching if needed.
+    // Actually, distinct IPs should probably be checked? Or just rely on user interaction.
+    // Ideally we fetch the list. Let's assume we don't for this 'simple' toggle unless requested, 
+    // OR we can make a new endpoint to get all blocked IPs.
+    // Let's add a quick fetch in useEffect. Wait, fetching ALL blocked IPs might be heavy if many.
+    // Let's just track locally for now or lazy fetch if user complaints.
+    // User asked "toggle button", so visual feedback is key.
+
+    // I will add a fetch to get blocked IPs to sync state.
+    const fetchBlockedIps = useCallback(async () => {
+        // This needs an endpoint. I added getBlockedIps in database but not exposed in API.
+        // Let's Skip fetching all for now and trust the user to block what they see. 
+        // Actually, if I refresh, I won't know what's blocked. That's bad UX.
+        // I should expose the list in the stats or dashboard API.
+    }, []);
+
 
     const fetchData = useCallback(async (isRefresh = false) => {
         try {
@@ -121,7 +185,7 @@ export default function DashboardPage() {
                 limit: "20",
             });
 
-            if (filters.chatId) params.append("chatId", filters.chatId);
+            if (filters.search) params.append("search", filters.search);
             if (filters.status) params.append("status", filters.status);
             if (filters.country) params.append("country", filters.country);
 
@@ -130,6 +194,9 @@ export default function DashboardPage() {
 
             if (result.success) {
                 setData(result.data);
+                if (result.data.blockedIps) {
+                    setBlockedIps(new Set(result.data.blockedIps));
+                }
                 if (isRefresh) toast.success("Dashboard updated");
             } else {
                 toast.error(result.error || "Failed to fetch data");
@@ -317,9 +384,9 @@ export default function DashboardPage() {
                                     <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500 group-focus-within:text-indigo-400 transition-colors" />
                                     <input
                                         type="text"
-                                        placeholder="Search requests..."
-                                        value={filters.chatId}
-                                        onChange={(e) => setFilters(prev => ({ ...prev, chatId: e.target.value }))}
+                                        placeholder="Search logs..."
+                                        value={filters.search}
+                                        onChange={(e) => setFilters(prev => ({ ...prev, search: e.target.value }))}
                                         className="h-9 pl-9 pr-4 bg-black/20 border border-white/5 rounded-lg text-xs focus:outline-none focus:border-indigo-500/50 w-full md:w-64 transition-all"
                                     />
                                 </div>
@@ -439,7 +506,18 @@ export default function DashboardPage() {
                                                     </td>
                                                     <td className="px-6 py-3">
                                                         <div className="flex items-center gap-2">
-                                                            <span className="text-zinc-400 font-mono text-[10px] bg-white/5 px-1.5 py-0.5 rounded">{log.ip}</span>
+                                                            <div className="flex items-center gap-2 bg-white/5 py-1 px-2 rounded hover:bg-white/10 transition-colors group/ip">
+                                                                <span className={`text-[10px] font-mono ${blockedIps.has(log.ip) ? 'text-rose-400 line-through opacity-70' : 'text-zinc-400'}`}>
+                                                                    {log.ip}
+                                                                </span>
+                                                                <button
+                                                                    onClick={(e) => { e.stopPropagation(); toggleIpBlock(log.ip); }}
+                                                                    className={`w-7 h-4 rounded-full transition-colors relative ml-1 ${blockedIps.has(log.ip) ? 'bg-rose-500' : 'bg-zinc-700/50 hover:bg-zinc-700'}`}
+                                                                    title={blockedIps.has(log.ip) ? "Unblock IP" : "Block IP"}
+                                                                >
+                                                                    <div className={`absolute top-0.5 left-0.5 w-3 h-3 bg-white rounded-full shadow-sm transition-transform duration-200 ${blockedIps.has(log.ip) ? 'translate-x-3' : 'translate-x-0'}`} />
+                                                                </button>
+                                                            </div>
                                                             <div className="flex items-center gap-1.5 text-zinc-300 ml-2">
                                                                 <span className="text-[10px] font-bold text-zinc-500 bg-white/5 px-1 rounded">{log.countryCode || "XX"}</span>
                                                                 <span className="truncate max-w-[100px]">{log.city || log.country || "Unknown"}</span>
