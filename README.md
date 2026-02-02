@@ -71,6 +71,67 @@ curl -X POST \
   -H "Content-Type: application/json" \
   -d '{"text": "Critical error at line 42", "caption": "Backend Service"}' \
   http://localhost:3000/api/123456789/upload
+  http://localhost:3000/api/123456789/upload
+```
+
+### API Responses
+
+#### ✅ 200 OK
+Success response when logs are sent to Telegram.
+```json
+{
+  "success": true,
+  "message": "Logs sent successfully to Telegram"
+}
+```
+
+#### ❌ 400 Bad Request
+Invalid input (missing fields, file too large, or wrong file type).
+```json
+{
+  "success": false,
+  "message": "Invalid request",
+  "error": "File size exceeds 18MB limit"
+}
+```
+
+#### 🚫 401 Unauthorized
+If you try to access protected admin routes without login.
+```json
+{
+  "success": false,
+  "error": "Unauthorized"
+}
+```
+
+#### 🔒 403 Forbidden
+Blocked IP address.
+```json
+{
+  "success": false,
+  "message": "Access Denied",
+  "error": "Your IP address has been blocked."
+}
+```
+
+#### ⚠️ 429 Too Many Requests
+Rate limit exceeded (10 requests/minute).
+```json
+{
+  "success": false,
+  "message": "Rate limit exceeded",
+  "error": "Too many requests. Please try again later."
+}
+```
+
+#### 💥 500 Server Error
+Telegram API failure or internal server error.
+```json
+{
+  "success": false,
+  "message": "Failed to send logs to Telegram",
+  "error": "Bad Request: chat not found"
+}
 ```
 
 ## Getting Credentials
