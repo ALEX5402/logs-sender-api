@@ -1,4 +1,4 @@
-import { MongoClient, Db, Collection } from "mongodb";
+import { MongoClient, Db, Collection, ObjectId } from "mongodb";
 
 const MONGODB_URI = process.env.MONGODB_URI || "mongodb://localhost:27017";
 const DB_NAME = process.env.MONGODB_DB || "logs_sender";
@@ -23,6 +23,20 @@ export interface LogEntry {
     status: "success" | "failed";
     errorMessage?: string;
     createdAt: Date;
+}
+
+export interface User {
+    _id?: ObjectId;
+    username: string;
+    passwordHash: string;
+    role: 'admin' | 'user';
+    createdAt: Date;
+}
+
+export interface Session {
+    _id: string; // Session ID (random string)
+    userId: string;
+    expiresAt: Date;
 }
 
 export interface RequestStats {
@@ -59,12 +73,30 @@ export async function connectToDatabase(): Promise<{
     await logsCollection.createIndex({ ip: 1 });
     await logsCollection.createIndex({ country: 1 });
 
+    // Create indexes for users and sessions
+    const usersCollection = db.collection<User>("users");
+    await usersCollection.createIndex({ username: 1 }, { unique: true });
+
+    // Sessions auto-expire using MongoDB TTL
+    const sessionsCollection = db.collection<Session>("sessions");
+    await sessionsCollection.createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
+
     return { client, db };
 }
 
 export async function getLogsCollection(): Promise<Collection<LogEntry>> {
     const { db } = await connectToDatabase();
     return db.collection<LogEntry>("logs");
+}
+
+export async function getUsersCollection(): Promise<Collection<User>> {
+    const { db } = await connectToDatabase();
+    return db.collection<User>("users");
+}
+
+export async function getSessionsCollection(): Promise<Collection<Session>> {
+    const { db } = await connectToDatabase();
+    return db.collection<Session>("sessions");
 }
 
 export async function saveLog(log: Omit<LogEntry, "_id">): Promise<void> {
@@ -153,4 +185,44 @@ export async function getStats(): Promise<RequestStats> {
         })),
         recentLogs,
     };
+}
+
+// Auth Helpers
+export async function createUser(user: User): Promise<void> {
+    const collection = await getUsersCollection();
+    await collection.insertOne(user);
+}
+
+export async function findUserByUsername(username: string): Promise<User | null> {
+    const collection = await getUsersCollection();
+    return collection.findOne({ username });
+}
+
+export async function getUserCount(): Promise<number> {
+    const collection = await getUsersCollection();
+    return collection.countDocuments();
+}
+
+export async function createSession(session: Session): Promise<void> {
+    const collection = await getSessionsCollection();
+    await collection.insertOne(session);
+}
+
+export async function getSession(sessionId: string): Promise<Session | null> {
+    const collection = await getSessionsCollection();
+    return collection.findOne({ _id: sessionId });
+}
+
+export async function deleteSession(sessionId: string): Promise<void> {
+    const collection = await getSessionsCollection();
+    await collection.deleteOne({ _id: sessionId });
+}
+
+export async function findUserById(userId: string): Promise<User | null> {
+    const collection = await getUsersCollection();
+    try {
+        return collection.findOne({ _id: new ObjectId(userId) });
+    } catch {
+        return null;
+    }
 }

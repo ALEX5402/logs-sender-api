@@ -3,6 +3,7 @@ import { sendLogs, isTelegramConfigured } from "@/app/lib/telegram";
 import { saveLog, LogEntry } from "@/app/lib/database";
 import { getClientIP, getGeoLocation } from "@/app/lib/geolocation";
 import { sanitizeContent } from "@/app/lib/sanitizer";
+import { rateLimiter } from "@/app/lib/ratelimit";
 
 interface UploadResponse {
     success: boolean;
@@ -26,6 +27,20 @@ export async function POST(
 ): Promise<NextResponse<UploadResponse>> {
     const startTime = Date.now();
     const ip = getClientIP(request.headers);
+
+    // Rate Limit Check
+    const limitStatus = rateLimiter.check(ip);
+    if (!limitStatus.allowed) {
+        return NextResponse.json(
+            {
+                success: false,
+                message: "Rate limit exceeded",
+                error: "Too many requests. Please try again later.",
+            },
+            { status: 429 }
+        );
+    }
+
     const userAgent = request.headers.get("user-agent") || undefined;
 
     // Get geolocation in background
