@@ -603,7 +603,7 @@ export default function DashboardPage() {
                                         return (
                                             <div key={i} className="flex items-center justify-between group">
                                                 <div className="flex items-center gap-3">
-                                                    <span className={`w-2 h-2 rounded-full ${i < 5 ? color : 'bg-zinc-700'}`} />
+                                                    <span className={`w-2 h-2 rounded-full ${color}`} />
                                                     <span className="text-xs font-bold bg-white/5 w-6 h-6 flex items-center justify-center rounded text-zinc-400">{country.countryCode || "XX"}</span>
                                                     <span className="text-xs font-medium text-zinc-300 truncate max-w-[100px]">{country.country}</span>
                                                 </div>
