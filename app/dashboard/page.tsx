@@ -595,7 +595,7 @@ export default function DashboardPage() {
 
                                 {/* Legend */}
                                 <div className="flex-1 w-full space-y-3 overflow-y-auto max-h-[220px] custom-scrollbar pr-2">
-                                    {stats?.requestsByCountry.slice(0, 6).map((country, i) => {
+                                    {stats?.requestsByCountry.map((country, i) => {
                                         const colors = ["bg-indigo-500", "bg-violet-500", "bg-purple-500", "bg-fuchsia-500", "bg-rose-500"];
                                         const color = colors[i % colors.length];
                                         const percentage = Math.round((country.count / (stats?.totalRequests || 1)) * 100);
@@ -614,13 +614,6 @@ export default function DashboardPage() {
                                             </div>
                                         );
                                     })}
-                                    {(stats?.requestsByCountry.length || 0) > 6 && (
-                                        <div className="text-center pt-2 border-t border-white/5">
-                                            <span className="text-[10px] text-zinc-500 italic">
-                                                + {(stats?.requestsByCountry.length || 0) - 6} more regions
-                                            </span>
-                                        </div>
-                                    )}
                                 </div>
                             </div>
                         </motion.div>
