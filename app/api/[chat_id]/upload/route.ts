@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { sendLogs, isTelegramConfigured } from "@/app/lib/telegram";
-import { saveLog, LogEntry, isIpBlocked } from "@/app/lib/database";
+import { saveLog, LogEntry, isIpBlocked, getPanicMode } from "@/app/lib/database";
 import { getClientIP, getGeoLocation } from "@/app/lib/geolocation";
 import { sanitizeContent } from "@/app/lib/sanitizer";
 import { rateLimiter } from "@/app/lib/ratelimit";
@@ -38,6 +38,18 @@ export async function POST(
                 error: "Too many requests. Please try again later.",
             },
             { status: 429 }
+        );
+    }
+
+    // Panic Mode Check (Global Lock)
+    if (await getPanicMode()) {
+        return NextResponse.json(
+            {
+                success: false,
+                message: "Service Unavailable",
+                error: "System is in panic mode. All uploads are currently suspended.",
+            },
+            { status: 503 }
         );
     }
 

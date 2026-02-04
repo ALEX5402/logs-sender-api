@@ -21,6 +21,9 @@ import {
     ShieldCheck,
     Lock,
     Unlock,
+    AlertTriangle,
+    Skull,
+
 } from "lucide-react";
 import { toast } from "sonner";
 import { motion, AnimatePresence } from "framer-motion";
@@ -117,6 +120,56 @@ export default function DashboardPage() {
     const [refreshing, setRefreshing] = useState(false);
     const [showStatusDropdown, setShowStatusDropdown] = useState(false);
     const [blockedIps, setBlockedIps] = useState<Set<string>>(new Set());
+
+    const [panicMode, setPanicMode] = useState(false);
+    const [showPanicConfirm, setShowPanicConfirm] = useState(false);
+
+
+    // Fetch Settings
+    useEffect(() => {
+        fetch("/api/dashboard/settings")
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) setPanicMode(data.panicMode);
+            })
+            .catch(console.error);
+    }, []);
+
+    // Execute Panic Toggle (Actual Logic)
+    const executePanicToggle = async () => {
+        const newStatus = !panicMode;
+        setPanicMode(newStatus); // Optimistic
+        setShowPanicConfirm(false); // Close modal if open
+
+        try {
+            const res = await fetch("/api/dashboard/settings", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ panicMode: newStatus }),
+            });
+            const data = await res.json();
+            if (data.success) {
+                toast.success(data.message);
+            } else {
+                setPanicMode(!newStatus); // Revert
+                toast.error(data.error);
+            }
+        } catch (err) {
+            setPanicMode(!newStatus); // Revert
+            toast.error("Failed to update settings");
+        }
+    };
+
+    // Handle Panic Button Click
+    const handlePanicClick = () => {
+        if (!panicMode) {
+            // Enable: Show Confirmation
+            setShowPanicConfirm(true);
+        } else {
+            // Disable: Execute immediately
+            executePanicToggle();
+        }
+    };
 
     // Toggle IP Block
     const toggleIpBlock = async (ip: string) => {
@@ -240,7 +293,7 @@ export default function DashboardPage() {
                 <div className="absolute bottom-[-20%] right-[-10%] w-[50%] h-[50%] rounded-full bg-purple-500/5 blur-[120px]" />
             </div>
 
-            <div className="relative z-10 p-6 max-w-[1600px] mx-auto space-y-8">
+            <div className="relative z-10 p-6 w-full mx-auto space-y-8">
                 {/* Header */}
                 <header className="flex items-center justify-between pb-6 border-b border-white/5">
                     <div className="flex items-center gap-4">
@@ -264,7 +317,34 @@ export default function DashboardPage() {
                         <RefreshCw size={14} className={refreshing ? "animate-spin" : ""} />
                         REFRESH
                     </button>
+
+                    <button
+                        onClick={handlePanicClick}
+                        className={`flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-lg transition-all border ${panicMode
+                            ? 'bg-red-500/20 text-red-400 border-red-500/50 hover:bg-red-500/30'
+                            : 'bg-zinc-800 text-zinc-400 border-zinc-700 hover:text-zinc-200'}`}
+                    >
+                        {panicMode ? <Skull size={14} /> : <AlertTriangle size={14} />}
+                        {panicMode ? "PANIC MODE ACTIVE" : "PANIC MODE"}
+                    </button>
                 </header>
+
+                {/* Panic Mode Banner */}
+                <AnimatePresence>
+                    {panicMode && (
+                        <motion.div
+                            initial={{ height: 0, opacity: 0 }}
+                            animate={{ height: "auto", opacity: 1 }}
+                            exit={{ height: 0, opacity: 0 }}
+                            className="bg-red-500/10 border border-red-500/20 rounded-xl overflow-hidden"
+                        >
+                            <div className="p-4 flex items-center justify-center gap-3 text-red-400">
+                                <Skull className="w-5 h-5 animate-pulse" />
+                                <span className="font-bold tracking-wide">SYSTEM LOCKDOWN IN EFFECT — ALL UPLOADS REJECTED</span>
+                            </div>
+                        </motion.div>
+                    )}
+                </AnimatePresence>
 
                 <motion.div
                     variants={containerVariants}
@@ -304,69 +384,244 @@ export default function DashboardPage() {
                     {/* Charts & Maps */}
                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                         {/* Hourly Activity */}
-                        <motion.div variants={itemVariants} className="lg:col-span-2 p-6 rounded-2xl bg-[#0a0a10]/60 backdrop-blur-xl border border-white/5">
+                        <motion.div variants={itemVariants} className="lg:col-span-2 p-6 rounded-2xl bg-[#0a0a10]/60 backdrop-blur-xl border border-white/5 flex flex-col">
                             <div className="flex items-center gap-2 mb-6 text-sm font-medium text-zinc-400">
                                 <Clock size={16} />
                                 <h3>24-HOUR ACTIVITY</h3>
                             </div>
 
-                            <div className="h-[240px] flex items-end gap-1.5 pb-2">
-                                {stats?.requestsByHour.map((item, i) => (
-                                    <div key={i} className="flex-1 flex flex-col justify-end group relative h-full">
-                                        <div
-                                            className="w-full bg-indigo-500/20 rounded-t-sm group-hover:bg-indigo-500 transition-all duration-300 relative overflow-hidden"
-                                            style={{ height: `${Math.max((item.count / maxHourlyCount) * 100, 4)}%` }}
-                                        >
-                                            <div className="absolute inset-0 bg-gradient-to-t from-indigo-500/0 to-indigo-500/20" />
+                            <div className="w-full">
+                                {(() => {
+                                    const data = stats?.requestsByHour || Array.from({ length: 24 }, (_, i) => ({ hour: i, count: 0 }));
+
+                                    const max = Math.max(...data.map(d => d.count), 5); // Minimum max of 5
+                                    const height = 200;
+                                    const width = 1000;
+                                    const xStep = width / (data.length - 1);
+
+                                    // Generate points
+                                    const points = data.map((d, i) => {
+                                        const x = i * xStep;
+                                        const y = height - (d.count / max) * height; // Invert Y
+                                        return [x, y];
+                                    });
+
+                                    // Simple smoothing (Catmull-Rom like or simple Bezier) could be complex, 
+                                    // let's use a straight line with slight curve or just straight lines for accuracy 
+                                    // OR implemented a simple cubic bezier generator.
+                                    // For simplicity and "tech" feel, straight lines with small curves or just polyline is often fine,
+                                    // but let's try a simple cubic bezier for "smoothness".
+
+                                    const svgPath = (points: number[][], command: 'L' | 'C') => {
+                                        // Simple Line generator
+                                        const d = points.reduce((acc, point, i, a) => {
+                                            if (i === 0) return `M ${point[0]},${point[1]}`;
+
+                                            // Smooth curve strategy: Control points
+                                            const [p0x, p0y] = a[i - 1]; // Previous
+                                            const [p1x, p1y] = point;    // Current
+
+                                            // Midpoint x
+                                            const midX = (p0x + p1x) / 2;
+
+                                            return `${acc} C ${midX},${p0y} ${midX},${p1y} ${p1x},${p1y}`;
+                                        }, '');
+                                        return d;
+                                    };
+
+                                    const pathD = svgPath(points, 'C');
+                                    const fillPathD = `${pathD} L ${width},${height} L 0,${height} Z`;
+
+                                    return (
+                                        <div className="flex flex-col w-full">
+                                            {/* Chart Container (Fixed Height 200px) */}
+                                            <div className="relative w-full h-[200px] group/chart">
+                                                {/* SVG Background Layer */}
+                                                <svg
+                                                    viewBox={`0 0 ${width} ${height}`}
+                                                    preserveAspectRatio="none"
+                                                    className="absolute inset-0 w-full h-full overflow-visible"
+                                                >
+                                                    <defs>
+                                                        <linearGradient id="chartGradient" x1="0" y1="0" x2="0" y2="1">
+                                                            <stop offset="0%" stopColor="#6366f1" stopOpacity="0.3" />
+                                                            <stop offset="100%" stopColor="#6366f1" stopOpacity="0" />
+                                                        </linearGradient>
+                                                    </defs>
+
+                                                    {/* Grid Lines */}
+                                                    {Array.from({ length: 5 }).map((_, i) => (
+                                                        <line
+                                                            key={i}
+                                                            x1="0" y1={i * (height / 4)}
+                                                            x2={width} y2={i * (height / 4)}
+                                                            stroke="white" strokeOpacity="0.05" strokeDasharray="4 4"
+                                                            vectorEffect="non-scaling-stroke"
+                                                        />
+                                                    ))}
+
+                                                    {/* Area Fill */}
+                                                    <path d={fillPathD} fill="url(#chartGradient)" />
+
+                                                    {/* Line Stroke */}
+                                                    <path
+                                                        d={pathD}
+                                                        fill="none"
+                                                        stroke="#6366f1"
+                                                        strokeWidth="3"
+                                                        strokeLinecap="round"
+                                                        strokeLinejoin="round"
+                                                        vectorEffect="non-scaling-stroke"
+                                                    />
+                                                </svg>
+
+                                                {/* HTML Interaction Layer (Perfect Sync) */}
+                                                <div className="absolute inset-0 w-full h-full">
+                                                    {data.map((d, i) => {
+                                                        const left = (i / (data.length - 1)) * 100;
+                                                        const top = 100 - ((d.count / max) * 100);
+
+                                                        return (<div
+                                                            key={i}
+                                                            className="absolute group/point w-8 h-full -ml-4 flex flex-col justify-end items-center"
+                                                            style={{ left: `${left}%` }}
+                                                        >
+                                                            {/* Full Height Hover Trigger */}
+                                                            <div className="absolute inset-0 hover:bg-white/5 transition-colors rounded-sm" />
+
+                                                            {/* Dot at data point */}
+                                                            <div
+                                                                className="absolute w-2.5 h-2.5 bg-[#0a0a10] border-2 border-indigo-400 rounded-full opacity-0 group-hover/point:opacity-100 transition-opacity z-10"
+                                                                style={{ top: `${top}%`, marginTop: '-5px' }}
+                                                            />
+
+                                                            {/* Tooltip */}
+                                                            <div
+                                                                className="absolute opacity-0 group-hover/chart:opacity-100 group-hover/point:scale-100 scale-95 transition-all pointer-events-none z-20"
+                                                                style={{ top: `${Math.min(top - 15, 80)}%` }} // Clamp to avoid going off top
+                                                            >
+                                                                <div className="bg-zinc-800/90 backdrop-blur border border-white/10 rounded px-2 py-1 text-center shadow-xl transform -translate-y-full mb-2">
+                                                                    <div className="text-[10px] text-zinc-400 font-mono whitespace-nowrap">{d.hour.toString().padStart(2, '0')}:00</div>
+                                                                    <div className="text-xs font-bold text-indigo-400">{d.count}</div>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                        );
+                                                    })}
+
+                                                </div>
+                                            </div>
+
+                                            {/* X-Axis Labels (Separate from Chart) */}
+                                            <div className="flex justify-between text-[10px] text-zinc-600 font-medium pt-3 px-1 border-t border-white/5 mt-auto">
+                                                <span>00:00</span>
+                                                <span>06:00</span>
+                                                <span>12:00</span>
+                                                <span>18:00</span>
+                                                <span>23:00</span>
+                                            </div>
                                         </div>
-                                        {/* Tooltip */}
-                                        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-zinc-800 text-xs rounded border border-white/10 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-20">
-                                            {item.hour}:00 • {item.count} reqs
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                            <div className="flex justify-between text-[10px] text-zinc-600 font-medium pt-2 border-t border-white/5">
-                                <span>00:00</span>
-                                <span>06:00</span>
-                                <span>12:00</span>
-                                <span>18:00</span>
-                                <span>23:00</span>
+                                    );
+                                })()}
                             </div>
                         </motion.div>
 
                         {/* Geographic Distribution */}
                         <motion.div variants={itemVariants} className="p-6 rounded-2xl bg-[#0a0a10]/60 backdrop-blur-xl border border-white/5 flex flex-col">
                             <div className="flex items-center gap-2 mb-6 text-sm font-medium text-zinc-400">
-                                <MapPin size={16} />
+                                <Globe size={16} />
                                 <h3>TOP REGIONS</h3>
                             </div>
 
-                            <div className="flex-1 overflow-y-auto pr-2 space-y-4 custom-scrollbar">
-                                {stats?.requestsByCountry.length === 0 ? (
-                                    <div className="flex flex-col items-center justify-center h-full text-zinc-600 gap-2">
-                                        <Globe size={24} className="opacity-20" />
-                                        <span className="text-xs">No data yet</span>
-                                    </div>
-                                ) : (
-                                    stats?.requestsByCountry.map((country, i) => (
-                                        <div key={i} className="group">
-                                            <div className="flex items-center justify-between mb-2 text-sm">
-                                                <div className="flex items-center gap-3">
-                                                    <span className="text-xs font-bold bg-zinc-800/50 w-8 h-8 flex items-center justify-center rounded-lg text-zinc-400">{country.countryCode || "XX"}</span>
-                                                    <span className="font-medium text-zinc-300">{country.country}</span>
-                                                </div>
-                                                <span className="font-mono text-zinc-500">{country.count}</span>
-                                            </div>
-                                            <div className="h-1.5 w-full bg-zinc-800/50 rounded-full overflow-hidden">
-                                                <div
-                                                    className="h-full bg-gradient-to-r from-indigo-500 to-purple-500 rounded-full"
-                                                    style={{ width: `${(country.count / maxCountryCount) * 100}%` }}
-                                                />
-                                            </div>
+                            <div className="flex-1 flex flex-col items-center gap-6">
+                                {/* Custom SVG Donut Chart */}
+                                <div className="relative w-40 h-40 flex-shrink-0">
+                                    {stats?.requestsByCountry.length === 0 ? (
+                                        <div className="absolute inset-0 flex items-center justify-center rounded-full border border-white/5 bg-white/5">
+                                            <span className="text-xs text-zinc-600">No Data</span>
                                         </div>
-                                    ))
-                                )}
+                                    ) : (
+                                        <svg viewBox="0 0 100 100" className="rotate-[-90deg]">
+                                            {(() => {
+                                                const total = stats?.totalRequests || 1;
+                                                const colors = ["#6366f1", "#8b5cf6", "#a855f7", "#d946ef", "#f43f5e", "#27272a"]; // Indigo, Violet, Purple, Fuchsia, Rose, Zinc
+
+                                                // Prepare data: Top 5 + Others
+                                                const topCountries = stats?.requestsByCountry.slice(0, 5) || [];
+                                                const othersCount = (stats?.requestsByCountry.slice(5) || []).reduce((acc, c) => acc + c.count, 0);
+
+                                                const data = [
+                                                    ...topCountries.map(c => ({ ...c, label: c.country })),
+                                                    ...(othersCount > 0 ? [{ count: othersCount, label: "Others", countryCode: "OT", color: "#27272a" }] : [])
+                                                ];
+
+                                                let currentAngle = 0;
+                                                return data.map((item, i) => {
+                                                    const percentage = (item.count / total) * 100;
+                                                    const radius = 40;
+                                                    const circumference = 2 * Math.PI * radius;
+                                                    const strokeDasharray = `${(percentage / 100) * circumference} ${circumference}`;
+                                                    const rotation = currentAngle;
+                                                    currentAngle += (percentage / 100) * 360;
+
+                                                    // Assign color if not "Others"
+                                                    const color = item.label === "Others" ? "#3f3f46" : colors[i % (colors.length - 1)];
+
+                                                    return (
+                                                        <circle
+                                                            key={i}
+                                                            cx="50"
+                                                            cy="50"
+                                                            r={radius}
+                                                            fill="transparent"
+                                                            stroke={color}
+                                                            strokeWidth="12"
+                                                            strokeDasharray={strokeDasharray}
+                                                            strokeLinecap="round" // Using round creates caps, plain 'butt' is cleaner for continuous donut
+                                                            transform={`rotate(${currentAngle - (percentage / 100) * 360} 50 50)`}
+                                                            className="transition-all duration-500 hover:opacity-80 cursor-pointer"
+                                                        />
+                                                    );
+                                                });
+                                            })()}
+                                        </svg>
+                                    )}
+                                    {/* Center Stats */}
+                                    <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                                        <span className="text-2xl font-bold">{stats?.requestsByCountry.length || 0}</span>
+                                        <span className="text-[10px] text-zinc-500 uppercase">Countries</span>
+                                    </div>
+                                </div>
+
+                                {/* Legend */}
+                                <div className="flex-1 w-full space-y-3 overflow-y-auto max-h-[220px] custom-scrollbar pr-2">
+                                    {stats?.requestsByCountry.slice(0, 6).map((country, i) => {
+                                        const colors = ["bg-indigo-500", "bg-violet-500", "bg-purple-500", "bg-fuchsia-500", "bg-rose-500"];
+                                        const color = colors[i % colors.length];
+                                        const percentage = Math.round((country.count / (stats?.totalRequests || 1)) * 100);
+
+                                        return (
+                                            <div key={i} className="flex items-center justify-between group">
+                                                <div className="flex items-center gap-3">
+                                                    <span className={`w-2 h-2 rounded-full ${i < 5 ? color : 'bg-zinc-700'}`} />
+                                                    <span className="text-xs font-bold bg-white/5 w-6 h-6 flex items-center justify-center rounded text-zinc-400">{country.countryCode || "XX"}</span>
+                                                    <span className="text-xs font-medium text-zinc-300 truncate max-w-[100px]">{country.country}</span>
+                                                </div>
+                                                <div className="flex items-center gap-2">
+                                                    <span className="text-xs font-mono text-zinc-500">{country.count}</span>
+                                                    <span className="text-[10px] bg-white/5 px-1.5 py-0.5 rounded text-zinc-500 w-10 text-center">{percentage}%</span>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                    {(stats?.requestsByCountry.length || 0) > 6 && (
+                                        <div className="text-center pt-2 border-t border-white/5">
+                                            <span className="text-[10px] text-zinc-500 italic">
+                                                + {(stats?.requestsByCountry.length || 0) - 6} more regions
+                                            </span>
+                                        </div>
+                                    )}
+                                </div>
                             </div>
                         </motion.div>
                     </div>
@@ -562,6 +817,70 @@ export default function DashboardPage() {
                     </motion.div>
                 </motion.div>
             </div>
+            {/* Panic Confirmation Modal */}
+            <AnimatePresence>
+                {showPanicConfirm && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+                        <motion.div
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            onClick={() => setShowPanicConfirm(false)}
+                            className="absolute inset-0 bg-black/80 backdrop-blur-sm"
+                        />
+                        <motion.div
+                            initial={{ opacity: 0, scale: 0.95, y: 20 }}
+                            animate={{ opacity: 1, scale: 1, y: 0 }}
+                            exit={{ opacity: 0, scale: 0.95, y: 20 }}
+                            className="relative w-full max-w-md bg-[#0a0a10] border border-red-500/30 rounded-2xl shadow-2xl shadow-red-500/10 overflow-hidden"
+                        >
+                            <div className="absolute top-0 inset-x-0 h-1 bg-gradient-to-r from-red-500 via-rose-500 to-red-500" />
+
+                            <div className="p-6 space-y-4">
+                                <div className="flex items-center gap-4 text-red-500">
+                                    <div className="p-3 bg-red-500/10 rounded-xl border border-red-500/20">
+                                        <Skull size={24} />
+                                    </div>
+                                    <div>
+                                        <h3 className="text-lg font-bold text-white">Enable Panic Mode?</h3>
+                                        <p className="text-xs text-red-400 font-medium">SYSTEM LOCKDOWN PROTOCOL</p>
+                                    </div>
+                                </div>
+
+                                <div className="space-y-4 pt-2">
+                                    <p className="text-sm text-zinc-400 leading-relaxed">
+                                        This will immediately <span className="text-red-400 font-bold">BLOCK ALL INCOMING UPLOADS</span>.
+                                        No files or logs will be accepted until you manually disable this mode.
+                                    </p>
+
+                                    <div className="p-3 bg-red-500/5 rounded-lg border border-red-500/10 flex gap-2.5">
+                                        <AlertTriangle size={16} className="text-red-400 shrink-0 mt-0.5" />
+                                        <p className="text-[11px] text-zinc-500">
+                                            Current active sessions will be interrupted. Use this only in case of emergency or maintenance.
+                                        </p>
+                                    </div>
+                                </div>
+
+                                <div className="flex items-center gap-3 pt-4">
+                                    <button
+                                        onClick={() => setShowPanicConfirm(false)}
+                                        className="flex-1 px-4 py-2.5 text-xs font-bold text-zinc-400 hover:text-white bg-white/5 hover:bg-white/10 rounded-lg transition-colors"
+                                    >
+                                        CANCEL
+                                    </button>
+                                    <button
+                                        onClick={executePanicToggle}
+                                        className="flex-1 px-4 py-2.5 text-xs font-bold text-white bg-red-500 hover:bg-red-600 rounded-lg shadow-lg shadow-red-500/20 transition-all flex items-center justify-center gap-2 group"
+                                    >
+                                        <Skull size={14} className="group-hover:animate-pulse" />
+                                        ACTIVATE LOCKDOWN
+                                    </button>
+                                </div>
+                            </div>
+                        </motion.div>
+                    </div>
+                )}
+            </AnimatePresence>
         </div>
     );
 }

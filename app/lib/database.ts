@@ -278,3 +278,37 @@ export async function getBlockedIps(): Promise<string[]> {
     const docs = await collection.find({}, { projection: { ip: 1 } }).toArray();
     return docs.map(d => d.ip);
 }
+
+// Global Settings (Panic Mode)
+export interface GlobalSettings {
+    _id: "global_settings";
+    panicMode: boolean;
+    updatedAt: Date;
+    updatedBy?: string;
+}
+
+export async function getSettingsCollection(): Promise<Collection<GlobalSettings>> {
+    const { db } = await connectToDatabase();
+    return db.collection<GlobalSettings>("settings");
+}
+
+export async function getPanicMode(): Promise<boolean> {
+    const collection = await getSettingsCollection();
+    const settings = await collection.findOne({ _id: "global_settings" });
+    return settings?.panicMode || false;
+}
+
+export async function setPanicMode(enabled: boolean, username?: string): Promise<void> {
+    const collection = await getSettingsCollection();
+    await collection.updateOne(
+        { _id: "global_settings" },
+        {
+            $set: {
+                panicMode: enabled,
+                updatedAt: new Date(),
+                updatedBy: username
+            }
+        },
+        { upsert: true }
+    );
+}
