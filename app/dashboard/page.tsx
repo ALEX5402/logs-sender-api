@@ -581,7 +581,7 @@ export default function DashboardPage() {
                                     return (
                                         <div className="flex flex-col w-full">
                                             {/* Chart Container */}
-                                            <div className="relative w-full h-[200px] group/chart">
+                                            <div className="relative w-full flex-1 min-h-[200px] group/chart">
                                                 <svg
                                                     viewBox={`0 0 ${width} ${height}`}
                                                     preserveAspectRatio="none"
@@ -1086,16 +1086,19 @@ export default function DashboardPage() {
                                         <input
                                             type="range"
                                             min={0}
-                                            max={90}
+                                            max={365}
                                             value={autoCleanupDays}
                                             onChange={(e) => setAutoCleanupDays(parseInt(e.target.value))}
-                                            className="w-full h-2 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-amber-500"
+                                            style={{
+                                                background: `linear-gradient(to right, #f59e0b ${(autoCleanupDays / 365) * 100}%, #27272a ${(autoCleanupDays / 365) * 100}%)`
+                                            }}
+                                            className="w-full h-2 rounded-lg appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-amber-500/20 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:shadow-lg [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-amber-500 [&::-webkit-slider-thumb]:hover:scale-110 [&::-webkit-slider-thumb]:transition-all"
                                         />
                                         <div className="flex justify-between text-[10px] text-zinc-600">
                                             <span>Off</span>
-                                            <span>30</span>
-                                            <span>60</span>
                                             <span>90</span>
+                                            <span>180</span>
+                                            <span>365</span>
                                         </div>
                                     </div>
                                 </div>
