@@ -23,10 +23,19 @@ import {
     Unlock,
     AlertTriangle,
     Skull,
+    Trash2,
+    Settings,
+    Calendar,
 
 } from "lucide-react";
 import { toast } from "sonner";
 import { motion, AnimatePresence } from "framer-motion";
+import {
+    cleanupByAgeAction,
+    cleanupByIdsAction,
+    getAutoCleanupSettingsAction,
+    updateAutoCleanupSettingsAction
+} from "@/app/actions/cleanup";
 
 interface LogEntry {
     _id: string;
@@ -56,6 +65,10 @@ interface Stats {
     totalDataSize: number;
     requestsByCountry: { country: string; countryCode: string; count: number }[];
     requestsByHour: { hour: number; count: number }[];
+    requestsByHourByCountry: {
+        hour: number;
+        countries: { country: string; countryCode: string; count: number }[]
+    }[];
     recentLogs: LogEntry[];
 }
 
@@ -124,8 +137,14 @@ export default function DashboardPage() {
     const [panicMode, setPanicMode] = useState(false);
     const [showPanicConfirm, setShowPanicConfirm] = useState(false);
 
+    // Cleanup State
+    const [showCleanupDropdown, setShowCleanupDropdown] = useState(false);
+    const [selectedLogs, setSelectedLogs] = useState<Set<string>>(new Set());
+    const [autoCleanupDays, setAutoCleanupDays] = useState(15);
+    const [showCleanupSettings, setShowCleanupSettings] = useState(false);
+    const [cleanupLoading, setCleanupLoading] = useState(false);
 
-    // Fetch Settings
+    // Fetch Settings (Panic + Cleanup)
     useEffect(() => {
         fetch("/api/dashboard/settings")
             .then(res => res.json())
@@ -133,7 +152,84 @@ export default function DashboardPage() {
                 if (data.success) setPanicMode(data.panicMode);
             })
             .catch(console.error);
+
+        getAutoCleanupSettingsAction()
+            .then(data => {
+                if (data.success && typeof data.autoCleanupDays === 'number') {
+                    const days = data.autoCleanupDays;
+                    setAutoCleanupDays(days);
+                    // Run auto-cleanup check silently
+                    if (days > 0) {
+                        import("@/app/actions/cleanup").then(({ runAutoCleanupAction }) => {
+                            runAutoCleanupAction().then(res => {
+                                if (res.success && typeof res.deletedCount === 'number' && res.deletedCount > 0) {
+                                    toast.success(`Auto-cleaned ${res.deletedCount} old logs`);
+                                    fetchData(true);
+                                }
+                            });
+                        });
+                    }
+                }
+            })
+            .catch(console.error);
     }, []);
+
+    // Cleanup by Age (Server Action)
+    const cleanupByAge = async (days: number) => {
+        setCleanupLoading(true);
+        setShowCleanupDropdown(false);
+        try {
+            const data = await cleanupByAgeAction(days);
+            if (data.success) {
+                toast.success(data.message);
+                fetchData(true);
+            } else {
+                toast.error(data.error);
+            }
+        } catch {
+            toast.error("Cleanup failed");
+        } finally {
+            setCleanupLoading(false);
+        }
+    };
+
+    // Cleanup Selected (Server Action)
+    const cleanupSelected = async () => {
+        if (selectedLogs.size === 0) {
+            toast.error("No logs selected");
+            return;
+        }
+        setCleanupLoading(true);
+        try {
+            const data = await cleanupByIdsAction(Array.from(selectedLogs));
+            if (data.success) {
+                toast.success(data.message);
+                setSelectedLogs(new Set());
+                fetchData(true);
+            } else {
+                toast.error(data.error);
+            }
+        } catch {
+            toast.error("Cleanup failed");
+        } finally {
+            setCleanupLoading(false);
+        }
+    };
+
+    // Update Auto-Cleanup Settings (Server Action)
+    const updateAutoCleanup = async (days: number) => {
+        try {
+            const data = await updateAutoCleanupSettingsAction(days);
+            if (data.success && data.autoCleanupDays !== undefined) {
+                setAutoCleanupDays(data.autoCleanupDays);
+                toast.success(data.message);
+            } else {
+                toast.error(data.error);
+            }
+        } catch {
+            toast.error("Failed to update settings");
+        }
+    };
 
     // Execute Panic Toggle (Actual Logic)
     const executePanicToggle = async () => {
@@ -295,7 +391,7 @@ export default function DashboardPage() {
 
             <div className="relative z-10 p-6 w-full mx-auto space-y-8">
                 {/* Header */}
-                <header className="flex items-center justify-between pb-6 border-b border-white/5">
+                <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 border-b border-white/5">
                     <div className="flex items-center gap-4">
                         <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center shadow-lg shadow-indigo-500/20">
                             <Terminal className="w-5 h-5 text-white" />
@@ -309,24 +405,75 @@ export default function DashboardPage() {
                         </div>
                     </div>
 
-                    <button
-                        onClick={() => fetchData(true)}
-                        disabled={refreshing}
-                        className="flex items-center gap-2 px-4 py-2 text-xs font-medium bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg transition-all disabled:opacity-50"
-                    >
-                        <RefreshCw size={14} className={refreshing ? "animate-spin" : ""} />
-                        REFRESH
-                    </button>
+                    {/* Action Buttons - Responsive */}
+                    <div className="flex items-center gap-2 flex-wrap">
+                        <button
+                            onClick={() => fetchData(true)}
+                            disabled={refreshing}
+                            className="flex items-center gap-2 px-3 py-2 text-xs font-medium bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg transition-all disabled:opacity-50"
+                        >
+                            <RefreshCw size={14} className={refreshing ? "animate-spin" : ""} />
+                            <span className="hidden sm:inline">REFRESH</span>
+                        </button>
 
-                    <button
-                        onClick={handlePanicClick}
-                        className={`flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-lg transition-all border ${panicMode
-                            ? 'bg-red-500/20 text-red-400 border-red-500/50 hover:bg-red-500/30'
-                            : 'bg-zinc-800 text-zinc-400 border-zinc-700 hover:text-zinc-200'}`}
-                    >
-                        {panicMode ? <Skull size={14} /> : <AlertTriangle size={14} />}
-                        {panicMode ? "PANIC MODE ACTIVE" : "PANIC MODE"}
-                    </button>
+                        <button
+                            onClick={handlePanicClick}
+                            className={`flex items-center gap-2 px-3 py-2 text-xs font-bold rounded-lg transition-all border ${panicMode
+                                ? 'bg-red-500/20 text-red-400 border-red-500/50 hover:bg-red-500/30'
+                                : 'bg-zinc-800 text-zinc-400 border-zinc-700 hover:text-zinc-200'}`}
+                        >
+                            {panicMode ? <Skull size={14} /> : <AlertTriangle size={14} />}
+                            <span className="hidden sm:inline">{panicMode ? "PANIC ACTIVE" : "PANIC"}</span>
+                        </button>
+
+                        {/* Cleanup Button with Dropdown */}
+                        <div className="relative">
+                            <button
+                                onClick={() => setShowCleanupDropdown(!showCleanupDropdown)}
+                                disabled={cleanupLoading}
+                                className="flex items-center gap-2 px-3 py-2 text-xs font-medium bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-400 rounded-lg transition-all disabled:opacity-50"
+                            >
+                                <Trash2 size={14} className={cleanupLoading ? "animate-pulse" : ""} />
+                                <span className="hidden sm:inline">CLEANUP</span>
+                            </button>
+
+                            <AnimatePresence>
+                                {showCleanupDropdown && (
+                                    <motion.div
+                                        initial={{ opacity: 0, y: -10 }}
+                                        animate={{ opacity: 1, y: 0 }}
+                                        exit={{ opacity: 0, y: -10 }}
+                                        className="absolute left-0 sm:left-auto sm:right-0 top-full mt-2 w-56 bg-zinc-900/95 backdrop-blur-xl border border-white/10 rounded-xl shadow-2xl overflow-hidden z-50"
+                                    >
+                                        <div className="p-2 border-b border-white/5">
+                                            <div className="text-[10px] text-zinc-500 uppercase px-2 py-1">Clear Logs Older Than</div>
+                                        </div>
+                                        <div className="p-1">
+                                            {[7, 15, 30, 60, 90].map(days => (
+                                                <button
+                                                    key={days}
+                                                    onClick={() => cleanupByAge(days)}
+                                                    className="w-full flex items-center gap-2 px-3 py-2 text-xs text-zinc-300 hover:bg-white/5 rounded-lg transition-colors"
+                                                >
+                                                    <Calendar size={12} className="text-amber-400" />
+                                                    <span>{days} days</span>
+                                                </button>
+                                            ))}
+                                        </div>
+                                        <div className="p-2 border-t border-white/5">
+                                            <button
+                                                onClick={() => { setShowCleanupDropdown(false); setShowCleanupSettings(true); }}
+                                                className="w-full flex items-center gap-2 px-3 py-2 text-xs text-zinc-400 hover:bg-white/5 rounded-lg transition-colors"
+                                            >
+                                                <Settings size={12} />
+                                                <span>Auto-Cleanup Settings</span>
+                                            </button>
+                                        </div>
+                                    </motion.div>
+                                )}
+                            </AnimatePresence>
+                        </div>
+                    </div>
                 </header>
 
                 {/* Panic Mode Banner */}
@@ -392,63 +539,54 @@ export default function DashboardPage() {
 
                             <div className="w-full">
                                 {(() => {
-                                    const data = stats?.requestsByHour || Array.from({ length: 24 }, (_, i) => ({ hour: i, count: 0 }));
+                                    const hourlyData = stats?.requestsByHourByCountry || Array.from({ length: 24 }, (_, i) => ({ hour: i, countries: [] }));
+                                    const totalData = stats?.requestsByHour || Array.from({ length: 24 }, (_, i) => ({ hour: i, count: 0 }));
 
-                                    const max = Math.max(...data.map(d => d.count), 5); // Minimum max of 5
-                                    const height = 200;
-                                    const width = 1000;
-                                    const xStep = width / (data.length - 1);
-
-                                    // Generate points
-                                    const points = data.map((d, i) => {
-                                        const x = i * xStep;
-                                        const y = height - (d.count / max) * height; // Invert Y
-                                        return [x, y];
+                                    // Get all unique countries across all hours
+                                    const allCountries = new Map<string, { country: string; countryCode: string }>();
+                                    hourlyData.forEach(h => {
+                                        h.countries.forEach(c => {
+                                            if (!allCountries.has(c.country)) {
+                                                allCountries.set(c.country, { country: c.country, countryCode: c.countryCode });
+                                            }
+                                        });
                                     });
+                                    const countryList = Array.from(allCountries.values());
 
-                                    // Simple smoothing (Catmull-Rom like or simple Bezier) could be complex, 
-                                    // let's use a straight line with slight curve or just straight lines for accuracy 
-                                    // OR implemented a simple cubic bezier generator.
-                                    // For simplicity and "tech" feel, straight lines with small curves or just polyline is often fine,
-                                    // but let's try a simple cubic bezier for "smoothness".
-
-                                    const svgPath = (points: number[][], command: 'L' | 'C') => {
-                                        // Simple Line generator
-                                        const d = points.reduce((acc, point, i, a) => {
-                                            if (i === 0) return `M ${point[0]},${point[1]}`;
-
-                                            // Smooth curve strategy: Control points
-                                            const [p0x, p0y] = a[i - 1]; // Previous
-                                            const [p1x, p1y] = point;    // Current
-
-                                            // Midpoint x
-                                            const midX = (p0x + p1x) / 2;
-
-                                            return `${acc} C ${midX},${p0y} ${midX},${p1y} ${p1x},${p1y}`;
-                                        }, '');
-                                        return d;
+                                    // Color generator (matching country list)
+                                    const getColor = (index: number) => {
+                                        const hue = (index * 137.508) % 360;
+                                        return `hsl(${hue}, 70%, 60%)`;
                                     };
 
-                                    const pathD = svgPath(points, 'C');
-                                    const fillPathD = `${pathD} L ${width},${height} L 0,${height} Z`;
+                                    const max = Math.max(...totalData.map(d => d.count), 5);
+                                    const height = 200;
+                                    const width = 1000;
+                                    const xStep = width / 23;
+
+                                    // Build stacked data per hour
+                                    const stackedData = hourlyData.map((h, hourIndex) => {
+                                        let cumulative = 0;
+                                        const stacks = countryList.map((c, countryIndex) => {
+                                            const countryData = h.countries.find(hc => hc.country === c.country);
+                                            const count = countryData?.count || 0;
+                                            const y0 = height - (cumulative / max) * height;
+                                            cumulative += count;
+                                            const y1 = height - (cumulative / max) * height;
+                                            return { country: c.country, countryCode: c.countryCode, count, y0, y1, colorIndex: countryIndex };
+                                        });
+                                        return { hour: h.hour, x: hourIndex * xStep, stacks, total: cumulative };
+                                    });
 
                                     return (
                                         <div className="flex flex-col w-full">
-                                            {/* Chart Container (Fixed Height 200px) */}
+                                            {/* Chart Container */}
                                             <div className="relative w-full h-[200px] group/chart">
-                                                {/* SVG Background Layer */}
                                                 <svg
                                                     viewBox={`0 0 ${width} ${height}`}
                                                     preserveAspectRatio="none"
                                                     className="absolute inset-0 w-full h-full overflow-visible"
                                                 >
-                                                    <defs>
-                                                        <linearGradient id="chartGradient" x1="0" y1="0" x2="0" y2="1">
-                                                            <stop offset="0%" stopColor="#6366f1" stopOpacity="0.3" />
-                                                            <stop offset="100%" stopColor="#6366f1" stopOpacity="0" />
-                                                        </linearGradient>
-                                                    </defs>
-
                                                     {/* Grid Lines */}
                                                     {Array.from({ length: 5 }).map((_, i) => (
                                                         <line
@@ -460,59 +598,89 @@ export default function DashboardPage() {
                                                         />
                                                     ))}
 
-                                                    {/* Area Fill */}
-                                                    <path d={fillPathD} fill="url(#chartGradient)" />
+                                                    {/* Stacked Area Fills */}
+                                                    {countryList.map((c, countryIndex) => {
+                                                        // Build path for this country's area
+                                                        const areaPoints = stackedData.map(h => {
+                                                            const stack = h.stacks[countryIndex];
+                                                            return { x: h.x, y0: stack.y0, y1: stack.y1 };
+                                                        });
 
-                                                    {/* Line Stroke */}
-                                                    <path
-                                                        d={pathD}
-                                                        fill="none"
-                                                        stroke="#6366f1"
-                                                        strokeWidth="3"
-                                                        strokeLinecap="round"
-                                                        strokeLinejoin="round"
-                                                        vectorEffect="non-scaling-stroke"
-                                                    />
-                                                </svg>
+                                                        // Top line (y1) going forward
+                                                        const topLine = areaPoints.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x},${p.y1}`).join(' ');
+                                                        // Bottom line (y0) going backward  
+                                                        const bottomLine = areaPoints.slice().reverse().map((p, i) => `${i === 0 ? 'L' : 'L'} ${p.x},${p.y0}`).join(' ');
 
-                                                {/* HTML Interaction Layer (Perfect Sync) */}
-                                                <div className="absolute inset-0 w-full h-full">
-                                                    {data.map((d, i) => {
-                                                        const left = (i / (data.length - 1)) * 100;
-                                                        const top = 100 - ((d.count / max) * 100);
+                                                        const pathD = `${topLine} ${bottomLine} Z`;
+                                                        const color = getColor(countryIndex);
 
-                                                        return (<div
-                                                            key={i}
-                                                            className="absolute group/point w-8 h-full -ml-4 flex flex-col justify-end items-center"
-                                                            style={{ left: `${left}%` }}
-                                                        >
-                                                            {/* Full Height Hover Trigger */}
-                                                            <div className="absolute inset-0 hover:bg-white/5 transition-colors rounded-sm" />
-
-                                                            {/* Dot at data point */}
-                                                            <div
-                                                                className="absolute w-2.5 h-2.5 bg-[#0a0a10] border-2 border-indigo-400 rounded-full opacity-0 group-hover/point:opacity-100 transition-opacity z-10"
-                                                                style={{ top: `${top}%`, marginTop: '-5px' }}
+                                                        return (
+                                                            <path
+                                                                key={c.country}
+                                                                d={pathD}
+                                                                fill={color}
+                                                                fillOpacity={0.6}
+                                                                stroke={color}
+                                                                strokeWidth={1}
+                                                                vectorEffect="non-scaling-stroke"
+                                                                className="transition-opacity hover:opacity-80"
                                                             />
-
-                                                            {/* Tooltip */}
-                                                            <div
-                                                                className="absolute opacity-0 group-hover/chart:opacity-100 group-hover/point:scale-100 scale-95 transition-all pointer-events-none z-20"
-                                                                style={{ top: `${Math.min(top - 15, 80)}%` }} // Clamp to avoid going off top
-                                                            >
-                                                                <div className="bg-zinc-800/90 backdrop-blur border border-white/10 rounded px-2 py-1 text-center shadow-xl transform -translate-y-full mb-2">
-                                                                    <div className="text-[10px] text-zinc-400 font-mono whitespace-nowrap">{d.hour.toString().padStart(2, '0')}:00</div>
-                                                                    <div className="text-xs font-bold text-indigo-400">{d.count}</div>
-                                                                </div>
-                                                            </div>
-                                                        </div>
                                                         );
                                                     })}
+                                                </svg>
 
+                                                {/* HTML Interaction Layer */}
+                                                <div className="absolute inset-0 w-full h-full">
+                                                    {stackedData.map((h, i) => {
+                                                        const left = (i / 23) * 100;
+                                                        const top = h.total > 0 ? 100 - ((h.total / max) * 100) : 100;
+
+                                                        return (
+                                                            <div
+                                                                key={i}
+                                                                className="absolute group/point w-8 h-full -ml-4"
+                                                                style={{ left: `${left}%` }}
+                                                            >
+                                                                <div className="absolute inset-0 hover:bg-white/5 transition-colors rounded-sm" />
+
+                                                                {/* Tooltip */}
+                                                                <div
+                                                                    className="absolute opacity-0 group-hover/point:opacity-100 scale-95 group-hover/point:scale-100 transition-all pointer-events-none z-20 left-1/2 -translate-x-1/2"
+                                                                    style={{ top: `${Math.max(top - 5, 5)}%` }}
+                                                                >
+                                                                    <div className="bg-zinc-900/95 backdrop-blur-md border border-white/10 rounded-lg px-3 py-2 shadow-2xl transform -translate-y-full mb-2 min-w-[120px]">
+                                                                        <div className="text-[11px] text-zinc-400 font-mono whitespace-nowrap text-center border-b border-white/10 pb-1 mb-1">
+                                                                            {h.hour.toString().padStart(2, '0')}:00
+                                                                        </div>
+                                                                        {h.stacks.filter(s => s.count > 0).slice(0, 5).map((s, si) => (
+                                                                            <div key={si} className="flex items-center justify-between gap-2 text-[10px]">
+                                                                                <div className="flex items-center gap-1">
+                                                                                    <span
+                                                                                        className="w-2 h-2 rounded-full"
+                                                                                        style={{ backgroundColor: getColor(s.colorIndex) }}
+                                                                                    />
+                                                                                    <span className="text-zinc-400">{s.countryCode}</span>
+                                                                                </div>
+                                                                                <span className="font-bold text-zinc-200">{s.count}</span>
+                                                                            </div>
+                                                                        ))}
+                                                                        {h.stacks.filter(s => s.count > 0).length > 5 && (
+                                                                            <div className="text-[9px] text-zinc-500 text-center mt-1">
+                                                                                +{h.stacks.filter(s => s.count > 0).length - 5} more
+                                                                            </div>
+                                                                        )}
+                                                                        <div className="text-xs font-bold text-indigo-400 text-center border-t border-white/10 pt-1 mt-1">
+                                                                            {h.total} total
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        );
+                                                    })}
                                                 </div>
                                             </div>
 
-                                            {/* X-Axis Labels (Separate from Chart) */}
+                                            {/* X-Axis Labels */}
                                             <div className="flex justify-between text-[10px] text-zinc-600 font-medium pt-3 px-1 border-t border-white/5 mt-auto">
                                                 <span>00:00</span>
                                                 <span>06:00</span>
@@ -544,16 +712,9 @@ export default function DashboardPage() {
                                         <svg viewBox="0 0 100 100" className="rotate-[-90deg]">
                                             {(() => {
                                                 const total = stats?.totalRequests || 1;
-                                                const colors = ["#6366f1", "#8b5cf6", "#a855f7", "#d946ef", "#f43f5e", "#27272a"]; // Indigo, Violet, Purple, Fuchsia, Rose, Zinc
 
-                                                // Prepare data: Top 5 + Others
-                                                const topCountries = stats?.requestsByCountry.slice(0, 5) || [];
-                                                const othersCount = (stats?.requestsByCountry.slice(5) || []).reduce((acc, c) => acc + c.count, 0);
-
-                                                const data = [
-                                                    ...topCountries.map(c => ({ ...c, label: c.country })),
-                                                    ...(othersCount > 0 ? [{ count: othersCount, label: "Others", countryCode: "OT", color: "#27272a" }] : [])
-                                                ];
+                                                // Use all data points directly
+                                                const data = stats?.requestsByCountry || [];
 
                                                 let currentAngle = 0;
                                                 return data.map((item, i) => {
@@ -561,13 +722,12 @@ export default function DashboardPage() {
                                                     const radius = 40;
                                                     const circumference = 2 * Math.PI * radius;
                                                     const strokeDasharray = `${(percentage / 100) * circumference} ${circumference}`;
-                                                    const rotation = currentAngle;
-                                                    currentAngle += (percentage / 100) * 360;
 
-                                                    // Assign color if not "Others"
-                                                    const color = item.label === "Others" ? "#3f3f46" : colors[i % (colors.length - 1)];
+                                                    // Generate unique HSL color based on Golden Angle
+                                                    const hue = (i * 137.508) % 360;  // Golden angle approximation
+                                                    const color = `hsl(${hue}, 70%, 60%)`;
 
-                                                    return (
+                                                    const segment = (
                                                         <circle
                                                             key={i}
                                                             cx="50"
@@ -577,11 +737,14 @@ export default function DashboardPage() {
                                                             stroke={color}
                                                             strokeWidth="12"
                                                             strokeDasharray={strokeDasharray}
-                                                            strokeLinecap="round" // Using round creates caps, plain 'butt' is cleaner for continuous donut
-                                                            transform={`rotate(${currentAngle - (percentage / 100) * 360} 50 50)`}
+                                                            strokeLinecap="round"
+                                                            transform={`rotate(${currentAngle} 50 50)`}
                                                             className="transition-all duration-500 hover:opacity-80 cursor-pointer"
                                                         />
                                                     );
+
+                                                    currentAngle += (percentage / 100) * 360;
+                                                    return segment;
                                                 });
                                             })()}
                                         </svg>
@@ -596,14 +759,18 @@ export default function DashboardPage() {
                                 {/* Legend */}
                                 <div className="flex-1 w-full space-y-3 overflow-y-auto max-h-[220px] custom-scrollbar pr-2">
                                     {stats?.requestsByCountry.map((country, i) => {
-                                        const colors = ["bg-indigo-500", "bg-violet-500", "bg-purple-500", "bg-fuchsia-500", "bg-rose-500"];
-                                        const color = colors[i % colors.length];
+                                        // Golden Angle Color (Matching Chart)
+                                        const hue = (i * 137.508) % 360;
+                                        const color = `hsl(${hue}, 70%, 60%)`;
                                         const percentage = Math.round((country.count / (stats?.totalRequests || 1)) * 100);
 
                                         return (
                                             <div key={i} className="flex items-center justify-between group">
                                                 <div className="flex items-center gap-3">
-                                                    <span className={`w-2 h-2 rounded-full ${color}`} />
+                                                    <span
+                                                        className="w-2 h-2 rounded-full"
+                                                        style={{ backgroundColor: color }}
+                                                    />
                                                     <span className="text-xs font-bold bg-white/5 w-6 h-6 flex items-center justify-center rounded text-zinc-400">{country.countryCode || "XX"}</span>
                                                     <span className="text-xs font-medium text-zinc-300 truncate max-w-[100px]">{country.country}</span>
                                                 </div>
@@ -867,6 +1034,85 @@ export default function DashboardPage() {
                                     >
                                         <Skull size={14} className="group-hover:animate-pulse" />
                                         ACTIVATE LOCKDOWN
+                                    </button>
+                                </div>
+                            </div>
+                        </motion.div>
+                    </div>
+                )}
+            </AnimatePresence>
+
+            {/* Cleanup Settings Modal */}
+            <AnimatePresence>
+                {showCleanupSettings && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+                        <motion.div
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            onClick={() => setShowCleanupSettings(false)}
+                            className="absolute inset-0 bg-black/80 backdrop-blur-sm"
+                        />
+                        <motion.div
+                            initial={{ opacity: 0, scale: 0.95, y: 20 }}
+                            animate={{ opacity: 1, scale: 1, y: 0 }}
+                            exit={{ opacity: 0, scale: 0.95, y: 20 }}
+                            className="relative w-full max-w-md bg-[#0a0a10] border border-amber-500/30 rounded-2xl shadow-2xl overflow-hidden"
+                        >
+                            <div className="absolute top-0 inset-x-0 h-1 bg-gradient-to-r from-amber-500 via-yellow-500 to-amber-500" />
+
+                            <div className="p-6 space-y-4">
+                                <div className="flex items-center gap-4">
+                                    <div className="p-3 bg-amber-500/10 rounded-xl border border-amber-500/20">
+                                        <Settings size={24} className="text-amber-400" />
+                                    </div>
+                                    <div>
+                                        <h3 className="text-lg font-bold text-white">Auto-Cleanup Settings</h3>
+                                        <p className="text-xs text-amber-400 font-medium">Scheduled log cleanup</p>
+                                    </div>
+                                </div>
+
+                                <div className="space-y-4 pt-2">
+                                    <p className="text-sm text-zinc-400">
+                                        Automatically delete logs older than the specified days when the dashboard loads.
+                                        Set to <span className="text-amber-400 font-bold">0</span> to disable.
+                                    </p>
+
+                                    <div className="space-y-2">
+                                        <div className="flex items-center justify-between">
+                                            <span className="text-xs text-zinc-500">Days</span>
+                                            <span className="text-xs font-bold text-amber-400">{autoCleanupDays === 0 ? 'Disabled' : `${autoCleanupDays} days`}</span>
+                                        </div>
+                                        <input
+                                            type="range"
+                                            min={0}
+                                            max={90}
+                                            value={autoCleanupDays}
+                                            onChange={(e) => setAutoCleanupDays(parseInt(e.target.value))}
+                                            className="w-full h-2 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-amber-500"
+                                        />
+                                        <div className="flex justify-between text-[10px] text-zinc-600">
+                                            <span>Off</span>
+                                            <span>30</span>
+                                            <span>60</span>
+                                            <span>90</span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="flex items-center gap-3 pt-4">
+                                    <button
+                                        onClick={() => setShowCleanupSettings(false)}
+                                        className="flex-1 px-4 py-2.5 text-xs font-bold text-zinc-400 hover:text-white bg-white/5 hover:bg-white/10 rounded-lg transition-colors"
+                                    >
+                                        CANCEL
+                                    </button>
+                                    <button
+                                        onClick={() => { updateAutoCleanup(autoCleanupDays); setShowCleanupSettings(false); }}
+                                        className="flex-1 px-4 py-2.5 text-xs font-bold text-white bg-amber-500 hover:bg-amber-600 rounded-lg shadow-lg shadow-amber-500/20 transition-all flex items-center justify-center gap-2"
+                                    >
+                                        <Calendar size={14} />
+                                        SAVE SETTINGS
                                     </button>
                                 </div>
                             </div>

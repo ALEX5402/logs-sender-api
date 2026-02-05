@@ -48,6 +48,10 @@ export interface RequestStats {
     totalDataSize: number;
     requestsByCountry: { country: string; countryCode: string; count: number }[];
     requestsByHour: { hour: number; count: number }[];
+    requestsByHourByCountry: {
+        hour: number;
+        countries: { country: string; countryCode: string; count: number }[]
+    }[];
     recentLogs: LogEntry[];
 }
 
@@ -151,6 +155,7 @@ export async function getStats(): Promise<RequestStats> {
         totalDataResult,
         countryStats,
         hourlyStats,
+        hourlyCountryStats,
         recentLogs,
     ] = await Promise.all([
         collection.countDocuments(),
@@ -176,6 +181,21 @@ export async function getStats(): Promise<RequestStats> {
             },
             { $sort: { _id: 1 } }
         ]).toArray(),
+        // Per-country hourly breakdown
+        collection.aggregate([
+            { $match: { country: { $exists: true, $ne: null } } },
+            {
+                $group: {
+                    _id: {
+                        hour: { $hour: "$createdAt" },
+                        country: "$country",
+                        code: "$countryCode"
+                    },
+                    count: { $sum: 1 }
+                }
+            },
+            { $sort: { "_id.hour": 1, count: -1 } }
+        ]).toArray(),
         collection.find().sort({ createdAt: -1 }).limit(10).toArray(),
     ]);
 
@@ -194,6 +214,17 @@ export async function getStats(): Promise<RequestStats> {
         requestsByHour: Array.from({ length: 24 }, (_, i) => ({
             hour: i,
             count: hourlyStats.find((h) => h._id === i)?.count || 0,
+        })),
+        // Transform per-country hourly data into nested structure
+        requestsByHourByCountry: Array.from({ length: 24 }, (_, hour) => ({
+            hour,
+            countries: hourlyCountryStats
+                .filter((s) => s._id.hour === hour)
+                .map((s) => ({
+                    country: s._id.country || "Unknown",
+                    countryCode: s._id.code || "XX",
+                    count: s.count,
+                }))
         })),
         recentLogs,
     };
@@ -283,6 +314,7 @@ export async function getBlockedIps(): Promise<string[]> {
 export interface GlobalSettings {
     _id: "global_settings";
     panicMode: boolean;
+    autoCleanupDays?: number; // 0 = disabled, default 15
     updatedAt: Date;
     updatedBy?: string;
 }
@@ -311,4 +343,58 @@ export async function setPanicMode(enabled: boolean, username?: string): Promise
         },
         { upsert: true }
     );
+}
+
+// Log Cleanup Functions
+export async function deleteLogsByAge(daysOld: number): Promise<number> {
+    const collection = await getLogsCollection();
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - daysOld);
+
+    const result = await collection.deleteMany({ createdAt: { $lt: cutoffDate } });
+    return result.deletedCount;
+}
+
+export async function deleteLogsByIds(ids: string[]): Promise<number> {
+    const collection = await getLogsCollection();
+    const objectIds = ids.map(id => {
+        try {
+            return new ObjectId(id);
+        } catch {
+            return null;
+        }
+    }).filter((id): id is ObjectId => id !== null);
+
+    if (objectIds.length === 0) return 0;
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const result = await collection.deleteMany({ _id: { $in: objectIds } } as any);
+    return result.deletedCount;
+}
+
+export async function getAutoCleanupDays(): Promise<number> {
+    const collection = await getSettingsCollection();
+    const settings = await collection.findOne({ _id: "global_settings" });
+    return settings?.autoCleanupDays ?? 15; // Default 15 days
+}
+
+export async function setAutoCleanupDays(days: number, username?: string): Promise<void> {
+    const collection = await getSettingsCollection();
+    await collection.updateOne(
+        { _id: "global_settings" },
+        {
+            $set: {
+                autoCleanupDays: days,
+                updatedAt: new Date(),
+                updatedBy: username
+            }
+        },
+        { upsert: true }
+    );
+}
+
+export async function runAutoCleanup(): Promise<number> {
+    const days = await getAutoCleanupDays();
+    if (days <= 0) return 0; // Disabled
+    return deleteLogsByAge(days);
 }
