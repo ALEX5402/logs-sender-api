@@ -143,6 +143,7 @@ export default function DashboardPage() {
     const [autoCleanupDays, setAutoCleanupDays] = useState(15);
     const [showCleanupSettings, setShowCleanupSettings] = useState(false);
     const [cleanupLoading, setCleanupLoading] = useState(false);
+    const [hoveredSeries, setHoveredSeries] = useState<number | null>(null);
 
     // Fetch Settings (Panic + Cleanup)
     useEffect(() => {
@@ -614,16 +615,28 @@ export default function DashboardPage() {
                                                         const pathD = `${topLine} ${bottomLine} Z`;
                                                         const color = getColor(countryIndex);
 
+                                                        const isHovered = hoveredSeries === countryIndex;
+                                                        const isDimmed = hoveredSeries !== null && hoveredSeries !== countryIndex;
+
+                                                        // Dynamic Styles
+                                                        const currentFillOpacity = isHovered ? 0.9 : (isDimmed ? 0.1 : 0.6);
+                                                        const currentStrokeOpacity = isHovered ? 1 : (isDimmed ? 0.2 : 1);
+                                                        const zIndex = isHovered ? 10 : 0;
+
                                                         return (
                                                             <path
                                                                 key={c.country}
                                                                 d={pathD}
                                                                 fill={color}
-                                                                fillOpacity={0.6}
+                                                                fillOpacity={currentFillOpacity}
                                                                 stroke={color}
-                                                                strokeWidth={1}
+                                                                strokeOpacity={currentStrokeOpacity}
+                                                                strokeWidth={isHovered ? 2 : 1}
                                                                 vectorEffect="non-scaling-stroke"
-                                                                className="transition-opacity hover:opacity-80"
+                                                                className={`transition-all duration-300 ease-in-out cursor-pointer ${isHovered ? 'brightness-125' : ''}`}
+                                                                onMouseEnter={() => setHoveredSeries(countryIndex)}
+                                                                onMouseLeave={() => setHoveredSeries(null)}
+                                                                style={{ position: 'relative', zIndex }}
                                                             />
                                                         );
                                                     })}
