@@ -579,7 +579,7 @@ export default function DashboardPage() {
                                     });
 
                                     return (
-                                        <div className="flex flex-col w-full">
+                                        <div className="flex flex-col w-full h-full">
                                             {/* Chart Container */}
                                             <div className="relative w-full flex-1 min-h-[200px] group/chart">
                                                 <svg
