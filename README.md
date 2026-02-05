@@ -2,7 +2,7 @@
 
 A high-performance Next.js 14 API for receiving log files and forwarding them to Telegram, featuring a professional real-time analytics dashboard.
 
-<img width="1852" height="1042" alt="image" src="https://github.com/user-attachments/assets/da733fe1-2608-43fb-8ad6-73bd2eeb4c3b" />
+<img width="1851" height="1032" alt="image" src="https://github.com/user-attachments/assets/ab1120e2-8cc1-4a24-b8c8-814bbc3787dd" />
 
 ## Features
 
