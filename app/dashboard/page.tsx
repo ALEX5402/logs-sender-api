@@ -537,7 +537,7 @@ export default function DashboardPage() {
                                 <h3>24-HOUR ACTIVITY</h3>
                             </div>
 
-                            <div className="w-full">
+                            <div className="w-full flex-1 flex flex-col">
                                 {(() => {
                                     const hourlyData = stats?.requestsByHourByCountry || Array.from({ length: 24 }, (_, i) => ({ hour: i, countries: [] }));
                                     const totalData = stats?.requestsByHour || Array.from({ length: 24 }, (_, i) => ({ hour: i, count: 0 }));
@@ -579,7 +579,7 @@ export default function DashboardPage() {
                                     });
 
                                     return (
-                                        <div className="flex flex-col w-full h-full">
+                                        <div className="flex flex-col w-full flex-1 h-full">
                                             {/* Chart Container */}
                                             <div className="relative w-full flex-1 min-h-[200px] group/chart">
                                                 <svg
