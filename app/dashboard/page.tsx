@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
     Activity,
     CheckCircle2,
@@ -144,6 +144,8 @@ export default function DashboardPage() {
     const [showCleanupSettings, setShowCleanupSettings] = useState(false);
     const [cleanupLoading, setCleanupLoading] = useState(false);
     const [hoveredSeries, setHoveredSeries] = useState<number | null>(null);
+    const [hoveredHour, setHoveredHour] = useState<number | null>(null);
+    const chartRef = useRef<HTMLDivElement>(null);
 
     // Fetch Settings (Panic + Cleanup)
     useEffect(() => {
@@ -579,10 +581,29 @@ export default function DashboardPage() {
                                         return { hour: h.hour, x: hourIndex * xStep, stacks, total: cumulative };
                                     });
 
+                                    const handleChartMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+                                        if (!chartRef.current) return;
+                                        const rect = chartRef.current.getBoundingClientRect();
+                                        const x = e.clientX - rect.left;
+                                        const width = rect.width;
+                                        // 24 hours
+                                        const hourExact = (x / width) * 24;
+                                        const hourIndex = Math.min(Math.max(Math.floor(hourExact), 0), 23);
+                                        setHoveredHour(hourIndex);
+                                    };
+
                                     return (
                                         <div className="flex flex-col w-full flex-1 h-full">
                                             {/* Chart Container */}
-                                            <div className="relative w-full flex-1 min-h-[200px] group/chart">
+                                            <div
+                                                ref={chartRef}
+                                                className="relative w-full flex-1 min-h-[200px] group/chart cursor-crosshair"
+                                                onMouseMove={handleChartMouseMove}
+                                                onMouseLeave={() => {
+                                                    setHoveredHour(null);
+                                                    setHoveredSeries(null);
+                                                }}
+                                            >
                                                 <svg
                                                     viewBox={`0 0 ${width} ${height}`}
                                                     preserveAspectRatio="none"
@@ -642,26 +663,28 @@ export default function DashboardPage() {
                                                     })}
                                                 </svg>
 
-                                                {/* HTML Interaction Layer */}
-                                                <div className="absolute inset-0 w-full h-full">
-                                                    {stackedData.map((h, i) => {
-                                                        const left = (i / 23) * 100;
+                                                {/* HTML Interaction Layer (Tooltip Only) */}
+                                                <div className="absolute inset-0 w-full h-full pointer-events-none">
+                                                    {hoveredHour !== null && (() => {
+                                                        const h = stackedData[hoveredHour];
+                                                        if (!h) return null;
+
+                                                        const left = (hoveredHour / 23) * 100;
                                                         const top = h.total > 0 ? 100 - ((h.total / max) * 100) : 100;
 
                                                         return (
                                                             <div
-                                                                key={i}
-                                                                className="absolute group/point w-8 h-full -ml-4"
+                                                                className="absolute w-px h-full bg-white/20"
                                                                 style={{ left: `${left}%` }}
                                                             >
-                                                                <div className="absolute inset-0 hover:bg-white/5 transition-colors rounded-sm" />
+                                                                <div className="absolute top-0 -translate-x-1/2 left-0 w-1.5 h-1.5 rounded-full bg-indigo-400 shadow-[0_0_10px_rgba(129,140,248,0.5)]" style={{ top: `${top}%` }} />
 
                                                                 {/* Tooltip */}
                                                                 <div
-                                                                    className="absolute opacity-0 group-hover/point:opacity-100 scale-95 group-hover/point:scale-100 transition-all pointer-events-none z-20 left-1/2 -translate-x-1/2"
+                                                                    className="absolute z-20 left-1/2 -translate-x-1/2 transition-all duration-75"
                                                                     style={{ top: `${Math.max(top - 5, 5)}%` }}
                                                                 >
-                                                                    <div className="bg-zinc-900/95 backdrop-blur-md border border-white/10 rounded-lg px-3 py-2 shadow-2xl transform -translate-y-full mb-2 min-w-[120px]">
+                                                                    <div className="bg-zinc-900/95 backdrop-blur-md border border-white/10 rounded-lg px-3 py-2 shadow-2xl transform -translate-y-full mb-2 min-w-[140px]">
                                                                         <div className="text-[11px] text-zinc-400 font-mono whitespace-nowrap text-center border-b border-white/10 pb-1 mb-1">
                                                                             {h.hour.toString().padStart(2, '0')}:00
                                                                         </div>
@@ -672,9 +695,9 @@ export default function DashboardPage() {
                                                                                         className="w-2 h-2 rounded-full"
                                                                                         style={{ backgroundColor: getColor(s.colorIndex) }}
                                                                                     />
-                                                                                    <span className="text-zinc-400">{s.countryCode}</span>
+                                                                                    <span className={`text-zinc-400 ${(hoveredSeries === s.colorIndex) ? "text-white font-bold" : ""}`}>{s.countryCode}</span>
                                                                                 </div>
-                                                                                <span className="font-bold text-zinc-200">{s.count}</span>
+                                                                                <span className={`font-bold ${(hoveredSeries === s.colorIndex) ? "text-amber-400" : "text-zinc-200"}`}>{s.count}</span>
                                                                             </div>
                                                                         ))}
                                                                         {h.stacks.filter(s => s.count > 0).length > 5 && (
@@ -689,7 +712,7 @@ export default function DashboardPage() {
                                                                 </div>
                                                             </div>
                                                         );
-                                                    })}
+                                                    })()}
                                                 </div>
                                             </div>
 
